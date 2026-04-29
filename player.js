@@ -34,6 +34,7 @@ function injectYplayerStyles(){
 }
 
 #yplayer-wrap {
+	font:inherit;
 	font-size:16px;
 	line-height:1.5;
 	max-width:940px;
