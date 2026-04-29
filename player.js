@@ -33,6 +33,15 @@ function injectYplayerStyles(){
 	--yplayer-open-shadow:rgba(0, 0, 0, 0.2) 0 0 calc(10 / 16 * 1em);
 }
 
+.yplayer:before {
+	content:"";
+	display:inline-block;
+	width:.6em;
+	height:.8em;
+	background-color:var(--yplayer-color-text);
+	clip-path:polygon(0% 0%, 100% 50%, 0% 100%);
+	margin-right:.5em;
+}
 #yplayer-wrap {
 	font:inherit;
 	font-size:16px;
@@ -131,6 +140,9 @@ function injectYplayerStyles(){
 }
 #yplayer-tracklist a.error {
 	color:var(--yplayer-color-error);
+}
+#yplayer-tracklist .yplayer:before {
+	display:none;
 }
 #yplayer-audio {
 	width:100%;
