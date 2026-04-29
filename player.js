@@ -82,10 +82,13 @@ function injectYplayerStyles(){
 	padding:calc(10 / 16 * 1em) 0px;
 	text-align:right;
 }
+#yplayer-footer img {
+	display:inline-block;
+	width:calc(60 / 16 * 1em);
+}
 #yplayer-content {
 	width:calc(560 / 16 * 1em);
 	vertical-align:top;
-	background-color:var(--yplayer-color-player-bg);
 	position:relative;
 	min-width:0;
 }
