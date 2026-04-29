@@ -22,58 +22,69 @@ function injectYplayerStyles(){
 	styleTag.textContent = `
 @charset "utf-8";
 
+:root {
+	--yplayer-color-surface:#fff;
+	--yplayer-color-text:#333;
+	--yplayer-color-link:#999;
+	--yplayer-color-player-bg:#000;
+	--yplayer-color-error:#f00;
+	--yplayer-color-control-bg:rgba(0,0,0,.1);
+	--yplayer-shadow:rgba(0, 0, 0, 0.2) 0 0 1em 0;
+	--yplayer-open-shadow:rgba(0, 0, 0, 0.2) 0 0 calc(10 / 16 * 1em);
+}
+
 #yplayer-wrap {
+	font-size:16px;
+	line-height:1.5;
+	max-width:940px;
 	box-sizing:border-box;
-	background-color:#fff;
-	color:#333;
-	padding:20px;
+	background-color:var(--yplayer-color-surface);
+	color:var(--yplayer-color-text);
+	padding:calc(20 / 16 * 1em);
 	position:fixed;
-	bottom:20px;
+	bottom:calc(20 / 16 * 1em);
 	left:-100%;
 	overflow:hidden;
-	border-radius:0px 10px 10px 0px;
-	box-shadow:rgba(0, 0, 0, 0.4) 0px 2px 10px 0px;
-	transition:.4s;
+	border-radius:0 calc(10 / 16 * 1em) calc(10 / 16 * 1em) 0;
+	box-shadow:var(--yplayer-shadow);
+	transition:.3s;
 }
 #yplayer-wrap * {
 	box-sizing:border-box;
-	line-height:1;
+	color:inherit;
 }
 #yplayer-wrap a {
-	color:#999;
+	color:var(--yplayer-color-link);
 }
 #yplayer-title {
 	width:100%;
-	margin:0px auto;
-	padding:10px 50px 10px 0px;
+	margin:0 auto;
+	padding:calc(10 / 16 * 1em) calc(50 / 16 * 1em) calc(10 / 16 * 1em) 0;
 }
 #yplayer-inner {
 	display:flex;
-	gap:20px;
-	max-width:800px;
-	margin:10px auto 0;
+	gap:calc(16 / 16 * 1em);
+	margin:calc(10 / 16 * 1em) auto 0;
 }
 #yplayer-footer {
 	width:100%;
-	margin:0px auto;
-	padding:10px 0px;
+	margin:0 auto;
+	padding:calc(10 / 16 * 1em) 0px;
 	text-align:right;
 }
 #yplayer-content {
-	width:420px;
-	display:table-cell;
+	width:calc(560 / 16 * 1em);
 	vertical-align:top;
-	background-color:#000;
+	background-color:var(--yplayer-color-player-bg);
 	position:relative;
+	min-width:0;
 }
 #yplayer-tracklist-wrap {
-	width:300px;
-	display:table-cell;
-	vertical-align:top;
-	overflow:hidden;
+	flex:1;
+	min-width:0;
 }
 #yplayer-youtube-wrap {
-	padding-top:56%;
+	padding-top:56.25%;
 	position:relative;
 	display:none;
 }
@@ -82,83 +93,99 @@ function injectYplayerStyles(){
 	position:absolute;
 	width:100%;
 	height:100%;
-	top:0;
 	left:0;
+	top:0;
 }
 #yplayer-audio-wrap {
 	display:none;
 	position:absolute;
-	bottom:0px;
-	left:0px;
+	bottom:0;
+	left:0;
 	width:100%;
 }
 #yplayer-audio {
 	display:block;
 }
 #yplayer-tracklist {
-	height:235px;
+	height:calc(315 / 16 * 1em);
 	overflow-y:auto;
 	width:100%;
 }
 #yplayer-tracklist a {
+	position:relative;
 	display:block;
 	text-decoration:none;
 	white-space:nowrap;
-	padding:6px 5px;
+	padding:calc(2 / 13 * 1em) 0;
 	overflow:hidden;
-	font-size:12px;
+	font-size:calc(13 / 16 * 1em);
 	text-overflow:ellipsis;
-	max-width:320px;
+	width:100%;
+}
+#yplayer-tracklist a:hover {
+	color:var(--yplayer-color-text);
 }
 #yplayer-tracklist a.active {
-	color:#333;
+	color:var(--yplayer-color-text);
 }
 #yplayer-tracklist a.error {
-	color:#f00;
+	color:var(--yplayer-color-error);
 }
 #yplayer-audio {
 	width:100%;
 }
-a#yplayer-closebtn {
+#yplayer-closebtn {
 	position:absolute;
 	display:block;
-	right:0px;
-	top:0px;
-	background-color:rgba(0,0,0,.1);
-	width:40px;
-	height:25px;
+	right:0;
+	top:0;
+	background-color:var(--yplayer-color-control-bg);
+	width:calc(50 / 16 * 1em);
+	height:calc(30 / 16 * 1em);
+	border-radius:0 0 0 calc(10 / 16 * 1em);
 }
-a#yplayer-openbtn {
+#yplayer-openbtn {
 	position:fixed;
 	display:block;
 	left:0;
-	bottom:20px;
-	background-color:#fff;
-	width:20px;
-	height:40px;
-	border-radius:0px 10px 10px 0px;
+	bottom:calc(20 / 16 * 1em);
+	background-color:var(--yplayer-color-surface);
+	border-radius:0 calc(10 / 16 * 1em) calc(10 / 16 * 1em) 0;
 	transition:.4s;
-	box-shadow:rgba(0, 0, 0, 0.4) 0px 2px 10px 0px;
+	box-shadow:var(--yplayer-open-shadow);
+	padding:1em;
 	transition:.4s;
 }
-
-@media screen and (max-width:768px){
+#yplayer-openbtn:before {
+	content:"";
+	display:block;
+	width:calc(16 / 16 * 1em);
+	height:calc(18 / 16 * 1em);
+	background-color:var(--yplayer-color-text);
+	clip-path:polygon(0% 0%, 100% 50%, 0% 100%);
+}
+@media screen and (max-width:940px){
 	#yplayer-wrap {
-		top:50px;
-		bottom:auto;
+		font-size:calc(16 / 940 * 100vw);
 		width:100%;
-		padding:0px;
-		border-radius:0px;
+	}
+}
+@media screen and (max-width:750px){
+	#yplayer-wrap {
+		font-size:calc(32 / 750 * 100vw);
+		bottom:0;
+		width:100%;
+		border-radius:0;
 	}
 	#yplayer-title {
 		width:100%;
-		margin:0px;
-		padding:10px 50px 10px 10px;
+		margin:0;
+		padding:0 calc(50 / 16 * 1em) 0 0;
 	}
 	#yplayer-footer {
 		width:100%;
-		margin:0px;
-		padding:10px;
+		margin:0;
+		padding:calc(10 / 16 * 1em);
 	}
 	#yplayer-inner,
 	#yplayer-content,
@@ -168,6 +195,10 @@ a#yplayer-openbtn {
 	}
 	#yplayer-tracklist-wrap {
 		width:100%;
+		margin-top:1em;
+	}
+	#yplayer-tracklist {
+		height:10em;
 	}
 	#yplayer-tracklist a {
 		width:100%;
@@ -535,7 +566,7 @@ function renderFooter(aplaydata){
 		footer.appendChild(createElement("img", {"src":aplaydata.img}));
 	}
 	else{
-		footer.appendChild(createElement("a", {"href":"https://webs.unc.jp/"}, "Yplayer"));
+		footer.appendChild(createElement("a", {"href":"https://webs.unc.jp/", "target":"_blank"}, "webs"));
 	}
 }
 
