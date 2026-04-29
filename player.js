@@ -1,3 +1,4 @@
+(function(){
 const TRACK_TYPE_MP3 = "mp3";
 const TRACK_TYPE_YOUTUBE = "ytb";
 
@@ -559,3 +560,7 @@ function yplayerhide(){
 		openButton.style.display = "";
 	}
 }
+
+// YouTube iframe API calls this function by name from the global scope.
+window.onYouTubeIframeAPIReady = onYouTubeIframeAPIReady;
+})();
