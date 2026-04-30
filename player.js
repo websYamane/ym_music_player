@@ -15,12 +15,8 @@ let waveformAnimationId = 0;
 let waveformCurrentPath = "";
 let waveformCurrentPeaks = null;
 let waveformCache = {};
-let waveformMediaSource = null;
-let waveformAnalyser = null;
-let waveformRealtimeData = null;
 let waveformRealtimeHistory = [];
 let waveformRealtimeLastTime = 0;
-let waveformRealtimeWarningShown = false;
 
 document.addEventListener("DOMContentLoaded", function(){
 	injectYplayerStyles();
@@ -640,7 +636,6 @@ function playMp3Track(aplaydata){
 	youtubeWrap.style.display = "none";
 	audioWrap.style.display = "block";
 	prepareAudioWaveform(aplaydata.path);
-	setupRealtimeWaveform();
 	audio.src = aplaydata.path;
 	audio.play();
 }
@@ -695,31 +690,6 @@ function resetAudioWaveform(){
 	drawAudioWaveform();
 }
 
-function setupRealtimeWaveform(){
-	try {
-		const context = getWaveformAudioContext();
-		if(!waveformMediaSource){
-			waveformMediaSource = context.createMediaElementSource(audio);
-			waveformAnalyser = context.createAnalyser();
-			waveformAnalyser.fftSize = 2048;
-			waveformAnalyser.smoothingTimeConstant = .82;
-			waveformRealtimeData = new Uint8Array(waveformAnalyser.fftSize);
-			waveformMediaSource.connect(waveformAnalyser);
-			waveformAnalyser.connect(context.destination);
-		}
-		if(context.state === "suspended" && typeof context.resume === "function"){
-			context.resume();
-		}
-	} catch(error) {
-		if(!waveformRealtimeWarningShown && window.console && typeof window.console.warn === "function"){
-			window.console.warn("Could not start realtime audio waveform.", error);
-		}
-		waveformRealtimeWarningShown = true;
-		waveformAnalyser = null;
-		waveformRealtimeData = null;
-	}
-}
-
 function resetRealtimeWaveformHistory(){
 	waveformRealtimeHistory = [];
 	waveformRealtimeLastTime = 0;
@@ -772,6 +742,23 @@ function getWaveformAudioContext(){
 function buildAudioWaveform(audioBuffer){
 	const barsPerSecond = 18;
 	const peakCount = Math.max(1, Math.ceil(audioBuffer.duration * barsPerSecond));
+	const realtimeBarsPerSecond = 60;
+	const realtimePeakCount = Math.max(1, Math.ceil(audioBuffer.duration * realtimeBarsPerSecond));
+	const peaks = buildAudioPeaks(audioBuffer, peakCount);
+	const realtimePeaks = buildAudioPeaks(audioBuffer, realtimePeakCount);
+
+	normalizePeaks(peaks);
+	normalizePeaks(realtimePeaks);
+	return {
+		duration: audioBuffer.duration,
+		barsPerSecond: barsPerSecond,
+		peaks: peaks,
+		realtimeBarsPerSecond: realtimeBarsPerSecond,
+		realtimePeaks: realtimePeaks
+	};
+}
+
+function buildAudioPeaks(audioBuffer, peakCount){
 	const peaks = new Float32Array(peakCount);
 
 	for(let channelIndex = 0; channelIndex < audioBuffer.numberOfChannels; ++channelIndex){
@@ -794,12 +781,7 @@ function buildAudioWaveform(audioBuffer){
 		}
 	}
 
-	normalizePeaks(peaks);
-	return {
-		duration: audioBuffer.duration,
-		barsPerSecond: barsPerSecond,
-		peaks: peaks
-	};
+	return peaks;
 }
 
 function normalizePeaks(peaks){
@@ -826,7 +808,7 @@ function startWaveformAnimation(){
 
 	function tick(){
 		drawAudioWaveform();
-		if(!audio.paused && (waveformCurrentPeaks || waveformAnalyser)){
+		if(!audio.paused && waveformCurrentPeaks){
 			waveformAnimationId = window.requestAnimationFrame(tick);
 		}
 		else{
@@ -908,7 +890,7 @@ function drawWaveformPeaks(context, size, waveform){
 	const visibleBars = Math.ceil(size.width / barStep) + 2;
 
 	context.save();
-	context.globalAlpha = waveformAnalyser ? .42 : .86;
+	context.globalAlpha = waveform.realtimePeaks ? .42 : .86;
 	context.fillStyle = "rgba(255,255,255,.86)";
 
 	for(let i = 0; i < visibleBars; ++i){
@@ -927,7 +909,7 @@ function drawWaveformPeaks(context, size, waveform){
 }
 
 function drawRealtimeWaveform(context, size){
-	if(!waveformAnalyser || !waveformRealtimeData){
+	if(!waveformCurrentPeaks || !waveformCurrentPeaks.realtimePeaks){
 		return;
 	}
 
@@ -981,7 +963,7 @@ function updateRealtimeWaveformHistory(){
 
 	if(!waveformRealtimeLastTime){
 		waveformRealtimeLastTime = now;
-		pushRealtimeWaveformPeak();
+		pushRealtimeWaveformPeak(audio.currentTime);
 		return;
 	}
 
@@ -992,26 +974,29 @@ function updateRealtimeWaveformHistory(){
 	pushes = Math.min(pushes, 4);
 
 	for(let i = 0; i < pushes; ++i){
-		pushRealtimeWaveformPeak();
+		const timeOffset = (pushes - 1 - i) / barsPerSecond;
+		pushRealtimeWaveformPeak(Math.max(0, audio.currentTime - timeOffset));
 		waveformRealtimeLastTime += interval;
 	}
 }
 
-function pushRealtimeWaveformPeak(){
-	waveformAnalyser.getByteTimeDomainData(waveformRealtimeData);
-
-	let peak = 0;
-	for(let i = 0; i < waveformRealtimeData.length; ++i){
-		const sample = Math.abs(waveformRealtimeData[i] - 128) / 128;
-		if(sample > peak){
-			peak = sample;
-		}
-	}
+function pushRealtimeWaveformPeak(time){
+	const peak = getRealtimeWaveformPeakAtTime(time);
 
 	waveformRealtimeHistory.push(Math.min(1, peak * 1.35));
 	if(waveformRealtimeHistory.length > 260){
 		waveformRealtimeHistory.splice(0, waveformRealtimeHistory.length - 260);
 	}
+}
+
+function getRealtimeWaveformPeakAtTime(time){
+	if(!waveformCurrentPeaks || !waveformCurrentPeaks.realtimePeaks){
+		return 0;
+	}
+
+	const peaks = waveformCurrentPeaks.realtimePeaks;
+	const peakIndex = Math.floor(time * waveformCurrentPeaks.realtimeBarsPerSecond);
+	return peaks[peakIndex] || 0;
 }
 
 function drawRoundedWaveformBar(context, x, y, width, height, radius){
