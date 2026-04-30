@@ -10,6 +10,17 @@ let playflg = 0;
 let playerReady = false;
 let uiReady = false;
 let youtubeApiRequested = false;
+let waveformAudioContext = null;
+let waveformAnimationId = 0;
+let waveformCurrentPath = "";
+let waveformCurrentPeaks = null;
+let waveformCache = {};
+let waveformMediaSource = null;
+let waveformAnalyser = null;
+let waveformRealtimeData = null;
+let waveformRealtimeHistory = [];
+let waveformRealtimeLastTime = 0;
+let waveformRealtimeWarningShown = false;
 
 document.addEventListener("DOMContentLoaded", function(){
 	injectYplayerStyles();
@@ -111,13 +122,53 @@ function injectYplayerStyles(){
 }
 #yplayer-audio-wrap {
 	display:none;
-	position:absolute;
-	bottom:0;
-	left:0;
+	padding-top:56.25%;
+	position:relative;
 	width:100%;
+}
+#yplayer-waveform {
+	position:absolute;
+	left:0;
+	top:0;
+	bottom:calc(3em + (8 / 16 * 1em));
+	width:100%;
+	overflow:hidden;
+	border-radius:calc(6 / 16 * 1em);
+	background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.02)), var(--yplayer-color-player-bg);
+}
+#yplayer-waveform:before,
+#yplayer-waveform:after {
+	content:"";
+	position:absolute;
+	left:0;
+	right:0;
+	pointer-events:none;
+}
+#yplayer-waveform:before {
+	top:50%;
+	height:1px;
+	background:rgba(255,255,255,.18);
+	z-index:1;
+}
+#yplayer-waveform:after {
+	inset:0;
+	background:linear-gradient(90deg, rgba(0,0,0,.35), transparent 18%, transparent 82%, rgba(0,0,0,.35));
+	z-index:2;
+}
+#yplayer-waveform-canvas {
+	position:absolute;
+	inset:0;
+	display:block;
+	width:100%;
+	height:100%;
 }
 #yplayer-audio {
 	display:block;
+	position:absolute;
+	left:0;
+	bottom:0;
+	width:100%;
+	height:3em;
 }
 #yplayer-tracklist {
 	height:calc(315 / 16 * 1em);
@@ -240,6 +291,14 @@ function initializeYplayer(){
 	}
 
 	audio.addEventListener("ended", playNextTrack);
+	audio.addEventListener("play", function(){
+		setAudioWaveformPlaying(true);
+	});
+	audio.addEventListener("pause", function(){
+		setAudioWaveformPlaying(false);
+	});
+	audio.addEventListener("seeked", drawAudioWaveform);
+	window.addEventListener("resize", drawAudioWaveform);
 }
 
 function buildYplayerDom(){
@@ -255,6 +314,7 @@ function buildYplayerDom(){
 	const youtubeWrap = createElement("div", {"id":"yplayer-youtube-wrap"});
 	const youtube = createElement("div", {"id":"yplayer-youtube"});
 	const audioWrap = createElement("div", {"id":"yplayer-audio-wrap"});
+	const waveform = createWaveformElement();
 	const audioElement = createElement("audio", {"id":"yplayer-audio", "controls":"controls"});
 
 	audioElement.appendChild(createElement("p", null, "HTML5 audio not supported"));
@@ -271,6 +331,7 @@ function buildYplayerDom(){
 	content.appendChild(youtubeWrap);
 	youtubeWrap.appendChild(youtube);
 	content.appendChild(audioWrap);
+	audioWrap.appendChild(waveform);
 	audioWrap.appendChild(audioElement);
 
 	return {
@@ -289,6 +350,14 @@ function createElement(tagName, attrs, text){
 		element.textContent = text;
 	}
 	return element;
+}
+
+function createWaveformElement(){
+	const waveform = createElement("div", {"id":"yplayer-waveform", "aria-hidden":"true"});
+	const canvas = createElement("canvas", {"id":"yplayer-waveform-canvas"});
+
+	waveform.appendChild(canvas);
+	return waveform;
 }
 
 function tagreload(){
@@ -509,6 +578,7 @@ function playNextTrackOrStop(){
 
 function mstop(){
 	audio.pause();
+	setAudioWaveformPlaying(false);
 	if(player && typeof player.stopVideo === "function"){
 		player.stopVideo();
 	}
@@ -555,6 +625,8 @@ function playYouTubeTrack(aplaydata){
 
 	youtubeWrap.style.display = "block";
 	audioWrap.style.display = "none";
+	setAudioWaveformPlaying(false);
+	resetAudioWaveform();
 
 	if(playerReady && player && typeof player.loadVideoById === "function"){
 		player.loadVideoById({"videoId":aplaydata.path});
@@ -567,8 +639,397 @@ function playMp3Track(aplaydata){
 
 	youtubeWrap.style.display = "none";
 	audioWrap.style.display = "block";
+	prepareAudioWaveform(aplaydata.path);
+	setupRealtimeWaveform();
 	audio.src = aplaydata.path;
 	audio.play();
+}
+
+function setAudioWaveformPlaying(isPlaying){
+	const audioWrap = document.getElementById("yplayer-audio-wrap");
+	if(!audioWrap){
+		return;
+	}
+	audioWrap.classList.toggle("is-playing", isPlaying);
+	if(isPlaying){
+		startWaveformAnimation();
+	}
+	else{
+		stopWaveformAnimation();
+		drawAudioWaveform();
+	}
+}
+
+function prepareAudioWaveform(path){
+	waveformCurrentPath = path;
+	waveformCurrentPeaks = null;
+	resetRealtimeWaveformHistory();
+	drawAudioWaveform();
+
+	loadAudioWaveform(path).then(function(waveform){
+		if(waveformCurrentPath !== path){
+			return;
+		}
+		waveformCurrentPeaks = waveform;
+		drawAudioWaveform();
+		if(!audio.paused){
+			startWaveformAnimation();
+		}
+	}).catch(function(error){
+		if(waveformCurrentPath !== path){
+			return;
+		}
+		waveformCurrentPeaks = null;
+		drawAudioWaveform();
+		if(window.console && typeof window.console.warn === "function"){
+			window.console.warn("Could not load audio waveform.", error);
+		}
+	});
+}
+
+function resetAudioWaveform(){
+	waveformCurrentPath = "";
+	waveformCurrentPeaks = null;
+	resetRealtimeWaveformHistory();
+	stopWaveformAnimation();
+	drawAudioWaveform();
+}
+
+function setupRealtimeWaveform(){
+	try {
+		const context = getWaveformAudioContext();
+		if(!waveformMediaSource){
+			waveformMediaSource = context.createMediaElementSource(audio);
+			waveformAnalyser = context.createAnalyser();
+			waveformAnalyser.fftSize = 2048;
+			waveformAnalyser.smoothingTimeConstant = .82;
+			waveformRealtimeData = new Uint8Array(waveformAnalyser.fftSize);
+			waveformMediaSource.connect(waveformAnalyser);
+			waveformAnalyser.connect(context.destination);
+		}
+		if(context.state === "suspended" && typeof context.resume === "function"){
+			context.resume();
+		}
+	} catch(error) {
+		if(!waveformRealtimeWarningShown && window.console && typeof window.console.warn === "function"){
+			window.console.warn("Could not start realtime audio waveform.", error);
+		}
+		waveformRealtimeWarningShown = true;
+		waveformAnalyser = null;
+		waveformRealtimeData = null;
+	}
+}
+
+function resetRealtimeWaveformHistory(){
+	waveformRealtimeHistory = [];
+	waveformRealtimeLastTime = 0;
+}
+
+function loadAudioWaveform(path){
+	if(waveformCache[path]){
+		return Promise.resolve(waveformCache[path]);
+	}
+
+	return fetch(path).then(function(response){
+		if(!response.ok){
+			throw new Error("Waveform fetch failed: " + response.status);
+		}
+		return response.arrayBuffer();
+	}).then(function(arrayBuffer){
+		return decodeAudioArrayBuffer(arrayBuffer);
+	}).then(function(audioBuffer){
+		const waveform = buildAudioWaveform(audioBuffer);
+		waveformCache[path] = waveform;
+		return waveform;
+	});
+}
+
+function decodeAudioArrayBuffer(arrayBuffer){
+	const context = getWaveformAudioContext();
+
+	return new Promise(function(resolve, reject){
+		const decodeResult = context.decodeAudioData(arrayBuffer.slice(0), resolve, reject);
+		if(decodeResult && typeof decodeResult.then === "function"){
+			decodeResult.then(resolve, reject);
+		}
+	});
+}
+
+function getWaveformAudioContext(){
+	if(waveformAudioContext){
+		return waveformAudioContext;
+	}
+
+	const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+	if(!AudioContextClass){
+		throw new Error("AudioContext is not supported.");
+	}
+
+	waveformAudioContext = new AudioContextClass();
+	return waveformAudioContext;
+}
+
+function buildAudioWaveform(audioBuffer){
+	const barsPerSecond = 18;
+	const peakCount = Math.max(1, Math.ceil(audioBuffer.duration * barsPerSecond));
+	const peaks = new Float32Array(peakCount);
+
+	for(let channelIndex = 0; channelIndex < audioBuffer.numberOfChannels; ++channelIndex){
+		const channelData = audioBuffer.getChannelData(channelIndex);
+		for(let peakIndex = 0; peakIndex < peakCount; ++peakIndex){
+			const start = Math.floor(peakIndex * channelData.length / peakCount);
+			const end = Math.max(start + 1, Math.floor((peakIndex + 1) * channelData.length / peakCount));
+			let peak = 0;
+
+			for(let sampleIndex = start; sampleIndex < end; ++sampleIndex){
+				const sample = Math.abs(channelData[sampleIndex]);
+				if(sample > peak){
+					peak = sample;
+				}
+			}
+
+			if(peak > peaks[peakIndex]){
+				peaks[peakIndex] = peak;
+			}
+		}
+	}
+
+	normalizePeaks(peaks);
+	return {
+		duration: audioBuffer.duration,
+		barsPerSecond: barsPerSecond,
+		peaks: peaks
+	};
+}
+
+function normalizePeaks(peaks){
+	let maxPeak = 0;
+	for(let i = 0; i < peaks.length; ++i){
+		if(peaks[i] > maxPeak){
+			maxPeak = peaks[i];
+		}
+	}
+
+	if(!maxPeak){
+		return;
+	}
+
+	for(let i = 0; i < peaks.length; ++i){
+		peaks[i] = peaks[i] / maxPeak;
+	}
+}
+
+function startWaveformAnimation(){
+	if(waveformAnimationId){
+		return;
+	}
+
+	function tick(){
+		drawAudioWaveform();
+		if(!audio.paused && (waveformCurrentPeaks || waveformAnalyser)){
+			waveformAnimationId = window.requestAnimationFrame(tick);
+		}
+		else{
+			waveformAnimationId = 0;
+		}
+	}
+
+	waveformAnimationId = window.requestAnimationFrame(tick);
+}
+
+function stopWaveformAnimation(){
+	if(!waveformAnimationId){
+		return;
+	}
+	window.cancelAnimationFrame(waveformAnimationId);
+	waveformAnimationId = 0;
+}
+
+function drawAudioWaveform(){
+	const canvas = document.getElementById("yplayer-waveform-canvas");
+	if(!canvas){
+		return;
+	}
+
+	const context = canvas.getContext("2d");
+	const size = resizeWaveformCanvas(canvas);
+	context.clearRect(0, 0, size.width, size.height);
+
+	if(!waveformCurrentPeaks){
+		drawWaveformIdle(context, size);
+	}
+	else{
+		drawWaveformPeaks(context, size, waveformCurrentPeaks);
+	}
+
+	drawRealtimeWaveform(context, size);
+}
+
+function resizeWaveformCanvas(canvas){
+	const rect = canvas.getBoundingClientRect();
+	const ratio = window.devicePixelRatio || 1;
+	const width = Math.max(1, Math.round(rect.width * ratio));
+	const height = Math.max(1, Math.round(rect.height * ratio));
+
+	if(canvas.width !== width || canvas.height !== height){
+		canvas.width = width;
+		canvas.height = height;
+	}
+
+	return {
+		width: width,
+		height: height,
+		ratio: ratio
+	};
+}
+
+function drawWaveformIdle(context, size){
+	const centerY = size.height / 2;
+	context.strokeStyle = "rgba(255,255,255,.24)";
+	context.lineWidth = Math.max(1, size.ratio);
+	context.beginPath();
+	context.moveTo(0, centerY);
+	context.lineTo(size.width, centerY);
+	context.stroke();
+}
+
+function drawWaveformPeaks(context, size, waveform){
+	const peaks = waveform.peaks;
+	const ratio = size.ratio;
+	const barWidth = Math.max(2, Math.round(3 * ratio));
+	const barGap = Math.max(2, Math.round(3 * ratio));
+	const barStep = barWidth + barGap;
+	const pixelsPerSecond = waveform.barsPerSecond * barStep;
+	const scrollPixels = audio.currentTime * pixelsPerSecond;
+	const firstPeakIndex = Math.floor(scrollPixels / barStep);
+	const xOffset = scrollPixels % barStep;
+	const centerY = size.height / 2;
+	const maxBarHeight = size.height * .82;
+	const visibleBars = Math.ceil(size.width / barStep) + 2;
+
+	context.save();
+	context.globalAlpha = waveformAnalyser ? .42 : .86;
+	context.fillStyle = "rgba(255,255,255,.86)";
+
+	for(let i = 0; i < visibleBars; ++i){
+		const peak = peaks[firstPeakIndex + i];
+		if(peak === undefined){
+			continue;
+		}
+
+		const height = Math.max(4 * ratio, peak * maxBarHeight);
+		const x = i * barStep - xOffset;
+		const y = centerY - height / 2;
+		drawRoundedWaveformBar(context, x, y, barWidth, height, barWidth / 2);
+	}
+
+	context.restore();
+}
+
+function drawRealtimeWaveform(context, size){
+	if(!waveformAnalyser || !waveformRealtimeData){
+		return;
+	}
+
+	updateRealtimeWaveformHistory();
+	if(!waveformRealtimeHistory.length){
+		return;
+	}
+
+	const ratio = size.ratio;
+	const barsPerSecond = 30;
+	const barWidth = Math.max(2, Math.round(4 * ratio));
+	const barGap = Math.max(2, Math.round(3 * ratio));
+	const barStep = barWidth + barGap;
+	const now = window.performance.now();
+	const elapsed = waveformRealtimeLastTime ? Math.max(0, now - waveformRealtimeLastTime) / 1000 : 0;
+	const scrollOffset = Math.min(barStep, elapsed * barsPerSecond * barStep);
+	const centerY = size.height / 2;
+	const maxBarHeight = size.height * .92;
+	const visibleBars = Math.ceil(size.width / barStep) + 2;
+
+	context.save();
+	context.fillStyle = "rgba(74, 214, 255, .88)";
+	context.shadowColor = "rgba(74, 214, 255, .32)";
+	context.shadowBlur = 8 * ratio;
+
+	for(let i = 0; i < visibleBars; ++i){
+		const historyIndex = waveformRealtimeHistory.length - 1 - i;
+		if(historyIndex < 0){
+			break;
+		}
+
+		const peak = waveformRealtimeHistory[historyIndex];
+		const height = Math.max(4 * ratio, peak * maxBarHeight);
+		const x = size.width - ((i + 1) * barStep) - scrollOffset;
+		const y = centerY - height / 2;
+		drawRoundedWaveformBar(context, x, y, barWidth, height, barWidth / 2);
+	}
+
+	context.restore();
+}
+
+function updateRealtimeWaveformHistory(){
+	if(audio.paused){
+		waveformRealtimeLastTime = 0;
+		return;
+	}
+
+	const barsPerSecond = 30;
+	const interval = 1000 / barsPerSecond;
+	const now = window.performance.now();
+
+	if(!waveformRealtimeLastTime){
+		waveformRealtimeLastTime = now;
+		pushRealtimeWaveformPeak();
+		return;
+	}
+
+	let pushes = Math.floor((now - waveformRealtimeLastTime) / interval);
+	if(pushes < 1){
+		return;
+	}
+	pushes = Math.min(pushes, 4);
+
+	for(let i = 0; i < pushes; ++i){
+		pushRealtimeWaveformPeak();
+		waveformRealtimeLastTime += interval;
+	}
+}
+
+function pushRealtimeWaveformPeak(){
+	waveformAnalyser.getByteTimeDomainData(waveformRealtimeData);
+
+	let peak = 0;
+	for(let i = 0; i < waveformRealtimeData.length; ++i){
+		const sample = Math.abs(waveformRealtimeData[i] - 128) / 128;
+		if(sample > peak){
+			peak = sample;
+		}
+	}
+
+	waveformRealtimeHistory.push(Math.min(1, peak * 1.35));
+	if(waveformRealtimeHistory.length > 260){
+		waveformRealtimeHistory.splice(0, waveformRealtimeHistory.length - 260);
+	}
+}
+
+function drawRoundedWaveformBar(context, x, y, width, height, radius){
+	const right = x + width;
+	const bottom = y + height;
+	const safeRadius = Math.min(radius, width / 2, height / 2);
+
+	context.beginPath();
+	context.moveTo(x + safeRadius, y);
+	context.lineTo(right - safeRadius, y);
+	context.quadraticCurveTo(right, y, right, y + safeRadius);
+	context.lineTo(right, bottom - safeRadius);
+	context.quadraticCurveTo(right, bottom, right - safeRadius, bottom);
+	context.lineTo(x + safeRadius, bottom);
+	context.quadraticCurveTo(x, bottom, x, bottom - safeRadius);
+	context.lineTo(x, y + safeRadius);
+	context.quadraticCurveTo(x, y, x + safeRadius, y);
+	context.fill();
 }
 
 function renderFooter(aplaydata){
