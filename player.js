@@ -15,6 +15,8 @@ let waveformAnimationId = 0;
 let waveformCurrentPath = "";
 let waveformCurrentPeaks = null;
 let waveformCache = {};
+let waveformCacheKeys = [];
+const MAX_WAVEFORM_CACHE_SIZE = 30;
 let waveformRealtimeHistory = [];
 let waveformRealtimeLastTime = 0;
 
@@ -30,7 +32,7 @@ function injectYplayerStyles(){
 @charset "utf-8";
 
 :root {
-	--yplayer-color-surface:#fff;
+	--yplayer-color-surface:rgba(255,255,255,.8);
 	--yplayer-color-text:#333;
 	--yplayer-color-link:#999;
 	--yplayer-color-player-bg:#000;
@@ -56,6 +58,7 @@ function injectYplayerStyles(){
 	max-width:940px;
 	box-sizing:border-box;
 	background-color:var(--yplayer-color-surface);
+	backdrop-filter: blur(1em);
 	color:var(--yplayer-color-text);
 	padding:calc(20 / 16 * 1em);
 	position:fixed;
@@ -179,14 +182,30 @@ function injectYplayerStyles(){
 	padding:calc(2 / 13 * 1em) 0;
 	overflow:hidden;
 	font-size:calc(13 / 16 * 1em);
-	text-overflow:ellipsis;
 	width:100%;
+}
+#yplayer-tracklist a .yplayer-track-title {
+	display:inline-block;
+	max-width:100%;
+	overflow:hidden;
+	text-overflow:ellipsis;
+	vertical-align:top;
+	will-change:transform;
 }
 #yplayer-tracklist a:hover {
 	color:var(--yplayer-color-text);
 }
 #yplayer-tracklist a.active {
 	color:var(--yplayer-color-text);
+}
+#yplayer-tracklist a.active.is-scrolling .yplayer-track-title {
+	max-width:none;
+	overflow:visible;
+	animation:yplayer-track-title-scroll var(--yplayer-track-scroll-duration, 10s) linear infinite;
+	min-width:100%;
+}
+#yplayer-tracklist a.active.is-scrolling:hover .yplayer-track-title {
+	animation-play-state:paused;
 }
 #yplayer-tracklist a.error {
 	color:var(--yplayer-color-error);
@@ -196,6 +215,22 @@ function injectYplayerStyles(){
 }
 #yplayer-audio {
 	width:100%;
+}
+@keyframes yplayer-track-title-scroll {
+	0% {
+		transform:translateX(0);
+		opacity:0;
+	}
+	3% {
+		opacity:1;
+	}
+	90% {
+		opacity:1;
+	}
+	100% {
+		transform:translateX(calc(var(--yplayer-track-scroll-distance, 0px) * -1));
+		opacity:0;
+	}
 }
 #yplayer-closebtn {
 	position:absolute;
@@ -286,7 +321,9 @@ function initializeYplayer(){
 		requestYouTubeIframeAPI();
 	}
 
-	audio.addEventListener("ended", playNextTrack);
+	audio.addEventListener("ended", function(){
+		advanceToNextTrack(true);
+	});
 	audio.addEventListener("play", function(){
 		setAudioWaveformPlaying(true);
 	});
@@ -364,7 +401,7 @@ function tagreload(){
 function collectPlayableTracks(){
 	const tracks = [];
 
-	Array.prototype.forEach.call(document.querySelectorAll("a[href]"), function(anchor){
+	document.querySelectorAll("a[href]").forEach(function(anchor){
 		const track = parseTrackFromAnchor(anchor, tracks.length);
 		if(!track){
 			return;
@@ -415,7 +452,8 @@ function renderTracklist(){
 
 	for(let i = 0; i < arlist.length; ++i){
 		const trackNumber = i + 1;
-		const link = createElement("a", {"href":"#", "class":"yplayer", "data-yplaynum":i}, trackNumber + ". " + arlist[i].title);
+		const link = createElement("a", {"href":"#", "class":"yplayer", "data-yplaynum":i});
+		link.appendChild(createElement("span", {"class":"yplayer-track-title"}, trackNumber + ". " + arlist[i].title));
 		tracklist.appendChild(link);
 	}
 }
@@ -501,16 +539,13 @@ function onPlayerReady(event){
 
 function onPlayerStateChange(event){
 	if(event.data === YT.PlayerState.ENDED){
-		playNextTrackOrStop();
+		advanceToNextTrack(false);
 	}
 }
 
 function onPlayerError(event){
-	const activeLink = document.querySelector("#yplayer-tracklist a[data-yplaynum='" + aplaynum + "']");
-	if(activeLink){
-		activeLink.classList.add("error");
-	}
-	playNextTrackOrStop();
+	markTrackAsError(aplaynum);
+	advanceToNextTrack(false);
 }
 
 function mstart(){
@@ -553,21 +588,14 @@ function playSelectedTrack(playerLink){
 	yplayerplay(arlist[aplaynum]);
 }
 
-function playNextTrack(){
-	audio.pause();
+function advanceToNextTrack(loop){
 	aplaynum++;
 	if(!arlist[aplaynum]){
 		aplaynum = 0;
-	}
-	yplayerplay(arlist[aplaynum]);
-}
-
-function playNextTrackOrStop(){
-	aplaynum++;
-	if(!arlist[aplaynum]){
-		aplaynum = 0;
-		mstop();
-		return;
+		if(!loop){
+			mstop();
+			return;
+		}
 	}
 	yplayerplay(arlist[aplaynum]);
 }
@@ -577,6 +605,17 @@ function mstop(){
 	setAudioWaveformPlaying(false);
 	if(player && typeof player.stopVideo === "function"){
 		player.stopVideo();
+	}
+}
+
+function markTrackAsError(index){
+	const tracklistLink = document.querySelector("#yplayer-tracklist a[data-yplaynum='" + index + "']");
+	if(tracklistLink){
+		tracklistLink.classList.add("error");
+	}
+	const pageLink = document.querySelector("a.yplayer[data-yplaynum='" + index + "']");
+	if(pageLink){
+		pageLink.classList.add("error");
 	}
 }
 
@@ -609,10 +648,47 @@ function updateTrackDisplay(aplaydata){
 	}
 	if(activeLink){
 		activeLink.classList.remove("active");
+		resetTrackTitleScroll(activeLink);
 	}
 	if(nextActiveLink){
 		nextActiveLink.classList.add("active");
+		updateTrackTitleScroll(nextActiveLink);
 	}
+}
+
+function updateTrackTitleScroll(link){
+	resetTrackTitleScroll(link);
+
+	window.requestAnimationFrame(function(){
+		const title = link.querySelector(".yplayer-track-title");
+		if(!title || !link.classList.contains("active")){
+			return;
+		}
+
+		title.style.maxWidth = "none";
+		title.style.overflow = "visible";
+		const overflow = title.scrollWidth - link.clientWidth;
+		title.style.maxWidth = "";
+		title.style.overflow = "";
+		if(overflow <= 1){
+			return;
+		}
+
+		const distance = overflow + 24;
+		const duration = Math.max(8, distance / 22);
+		link.style.setProperty("--yplayer-track-scroll-distance", distance + "px");
+		link.style.setProperty("--yplayer-track-scroll-duration", duration + "s");
+		link.classList.add("is-scrolling");
+	});
+}
+
+function resetTrackTitleScroll(link){
+	if(!link){
+		return;
+	}
+	link.classList.remove("is-scrolling");
+	link.style.removeProperty("--yplayer-track-scroll-distance");
+	link.style.removeProperty("--yplayer-track-scroll-duration");
 }
 
 function playYouTubeTrack(aplaydata){
@@ -676,6 +752,7 @@ function prepareAudioWaveform(path){
 		}
 		waveformCurrentPeaks = null;
 		drawAudioWaveform();
+		markTrackAsError(aplaynum);
 		if(window.console && typeof window.console.warn === "function"){
 			window.console.warn("Could not load audio waveform.", error);
 		}
@@ -710,6 +787,11 @@ function loadAudioWaveform(path){
 	}).then(function(audioBuffer){
 		const waveform = buildAudioWaveform(audioBuffer);
 		waveformCache[path] = waveform;
+		waveformCacheKeys.push(path);
+		if(waveformCacheKeys.length > MAX_WAVEFORM_CACHE_SIZE){
+			const oldestPath = waveformCacheKeys.shift();
+			delete waveformCache[oldestPath];
+		}
 		return waveform;
 	});
 }
