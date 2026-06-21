@@ -137,9 +137,21 @@ YouTube リンクがページ内にある場合だけ、YouTube iframe API を�
 </style>
 ```
 
+## API
+
+### window.yplayer.reload()
+
+ページ内の対象リンクを再捜索し、プレイヤーのトラックリストを更新します。Ajaxなどで動的にコンテンツ（MP3やYouTubeのリンク）が追加された場合、このメソッドを呼び出すことで自動的にリストが同期され、プレイヤーの表示/非表示状態も再評価されます。
+
+```javascript
+// 動的なコンテンツ追加後に呼び出す例
+if (window.yplayer) {
+	window.yplayer.reload();
+}
+```
+
 ## Notes
 
 - YouTube の再生には外部の YouTube iframe API が必要です。
 - YouTube のプレイヤー UI は、ブラウザや YouTube 側の仕様によって表示が変わることがあります。
 - `onYouTubeIframeAPIReady` は YouTube iframe API から呼ばれるため、例外的に `window` に公開しています。
-- 外部から直接操作するための公開 API は現在ありません。

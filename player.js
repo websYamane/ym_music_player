@@ -1158,6 +1158,11 @@ function yplayerhide(){
 	}
 }
 
+// Public API
+window.yplayer = {
+	reload: tagreload
+};
+
 // YouTube iframe API calls this function by name from the global scope.
 window.onYouTubeIframeAPIReady = onYouTubeIframeAPIReady;
 })();
