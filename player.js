@@ -396,6 +396,28 @@ function createWaveformElement(){
 function tagreload(){
 	arlist = collectPlayableTracks();
 	renderTracklist();
+
+	const wrap = document.getElementById("yplayer-wrap");
+	const openButton = document.getElementById("yplayer-openbtn");
+	if(arlist.length === 0){
+		if(wrap){
+			wrap.style.display = "none";
+		}
+		if(openButton){
+			openButton.style.display = "none";
+		}
+	} else {
+		if(wrap){
+			wrap.style.display = "";
+		}
+		if(openButton){
+			if(wrap && (wrap.style.left === "0" || wrap.style.left === "0px")){
+				openButton.style.display = "none";
+			} else {
+				openButton.style.display = "";
+			}
+		}
+	}
 }
 
 function collectPlayableTracks(){
