@@ -561,7 +561,7 @@ function onPlayerReady(event){
 
 function onPlayerStateChange(event){
 	if(event.data === YT.PlayerState.ENDED){
-		advanceToNextTrack(false);
+		advanceToNextTrack(true);
 	}
 }
 
