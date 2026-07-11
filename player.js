@@ -406,12 +406,26 @@ function createWaveformElement(){
 }
 
 function tagreload(){
+	const currentTrack = (playflg && arlist[aplaynum]) ? arlist[aplaynum] : null;
+
 	arlist = collectPlayableTracks();
+
+	if (currentTrack) {
+		let newIndex = -1;
+		for (let i = 0; i < arlist.length; ++i) {
+			if (arlist[i].path === currentTrack.path && arlist[i].m === currentTrack.m) {
+				newIndex = i;
+				break;
+			}
+		}
+		aplaynum = newIndex;
+	}
+
 	renderTracklist();
 
 	const wrap = document.getElementById("yplayer-wrap");
 	const openButton = document.getElementById("yplayer-openbtn");
-	if(arlist.length === 0){
+	if(arlist.length === 0 && !playflg){
 		if(wrap){
 			wrap.style.display = "none";
 		}
@@ -486,9 +500,17 @@ function renderTracklist(){
 
 	for(let i = 0; i < arlist.length; ++i){
 		const trackNumber = i + 1;
-		const link = createElement("a", {"href":"#", "class":"yplayer", "data-yplaynum":i});
+		const isActive = (playflg && i === aplaynum);
+		const link = createElement("a", {
+			"href": "#",
+			"class": "yplayer" + (isActive ? " active" : ""),
+			"data-yplaynum": i
+		});
 		link.appendChild(createElement("span", {"class":"yplayer-track-title"}, trackNumber + ". " + arlist[i].title));
 		tracklist.appendChild(link);
+		if(isActive){
+			updateTrackTitleScroll(link);
+		}
 	}
 }
 
