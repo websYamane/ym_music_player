@@ -19,6 +19,7 @@ let waveformCacheKeys = [];
 const MAX_WAVEFORM_CACHE_SIZE = 30;
 let waveformRealtimeHistory = [];
 let waveformRealtimeLastTime = 0;
+let errorTrackKeys = new Set();
 
 document.addEventListener("DOMContentLoaded", function(){
 	injectYplayerStyles();
@@ -457,6 +458,7 @@ function collectPlayableTracks(){
 
 		anchor.classList.add("yplayer");
 		anchor.setAttribute("data-yplaynum", track.yplaynum);
+		anchor.classList.toggle("error", errorTrackKeys.has(trackErrorKey(track)));
 		tracks.push(track);
 	});
 
@@ -501,9 +503,10 @@ function renderTracklist(){
 	for(let i = 0; i < arlist.length; ++i){
 		const trackNumber = i + 1;
 		const isActive = (playflg && i === aplaynum);
+		const isError = errorTrackKeys.has(trackErrorKey(arlist[i]));
 		const link = createElement("a", {
 			"href": "#",
-			"class": "yplayer" + (isActive ? " active" : ""),
+			"class": "yplayer" + (isActive ? " active" : "") + (isError ? " error" : ""),
 			"data-yplaynum": i
 		});
 		link.appendChild(createElement("span", {"class":"yplayer-track-title"}, trackNumber + ". " + arlist[i].title));
@@ -680,7 +683,16 @@ function mstop(){
 	}
 }
 
+function trackErrorKey(track){
+	return track ? track.m + "|" + track.path : "";
+}
+
 function markTrackAsError(index){
+	const track = arlist[index];
+	if(track){
+		errorTrackKeys.add(trackErrorKey(track));
+	}
+
 	const tracklistLink = document.querySelector("#yplayer-tracklist a[data-yplaynum='" + index + "']");
 	if(tracklistLink){
 		tracklistLink.classList.add("error");
